@@ -1,0 +1,67 @@
+#!/usr/bin/env groovy
+@Library('sample-petstore-declarative-libs') _
+import groovy.json.JsonBuilder
+
+pipeline {
+    agent none
+    
+    stages {
+        stage('Checkout') {
+            agent any
+            steps {
+                git 'https://github.com/stevejr/microservices-docker-go-mongodb.git'
+                stash excludes: '**/.git/**', includes: '**', name: 'ws' 
+            }
+        }
+        stage('Build Image') {
+            agent any
+            
+            environment {
+                BUILD_DATE=sh(returnStdout: true,
+                    script: 'date -u +"%Y-%m-%dT%H:%M:%SZ"').trim()
+                VCS_REF=sh(returnStdout: true, 
+                    script: "git rev-parse HEAD").trim().take(6)
+            }
+
+            steps {
+                unstash 'ws'
+                dir('bookings') {
+                    sh "docker build -t cinema/bookings:latest --build-arg BUILD_DATE=${BUILD_DATE} --build-arg VCS_REF=${VCS_REF} ."
+                }
+                script {
+                    env.IMAGE_ID = sh (script: "docker inspect --format='{{.ID}}' cinema/bookings:latest", returnStdout: true).trim()
+                }
+                echo "Image id: ${env.IMAGE_ID}"
+            }
+        }
+        stage('Update VFI') {
+            agent any
+            steps {
+                script{
+                    ws('bookingsVFI') {
+                        echo "${env.BUILD_TAG}"
+                        sh 'git clean -dfx'
+                        git 'https://github.com/stevejr/microservices-docker-go-mongodb-vfi.git'
+                        sh 'ls -ltra'
+                        updateVFI ([vfiFile:'./cinema/vfi.json',
+                            component: 'bookings', 
+                            address: "cinema/bookings:${IMAGE_ID}".toString()
+                        ])
+
+                        sh 'cat ./cinema/vfi.json'
+
+                        gitCommitPush([message: "Updated bookings address to value ${IMAGE_ID.toString()}",
+                            email: "jenkins-local@example.com",
+                            username: "jenkins-local",
+                            file: "./cinema/vfi.json",
+                            credentials: "stevejr-github",
+                            tag: "${env.BUILD_TAG}",
+                            repo: "github.com/stevejr/microservices-docker-go-mongodb-vfi.git"
+                        ])
+                    }
+                }
+            }
+        }
+    }
+}
+
