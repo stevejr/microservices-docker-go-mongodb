@@ -1,6 +1,12 @@
 # golang image where workspace (GOPATH) configured at /go.
 FROM golang:1.6
 
+ARG BUILD_DATE
+ARG VCS_REF
+
+LABEL org.label-schema.build-date=$BUILD_DATE \
+      org.label-schema.vcs-ref=$VCS_REF
+
 # Install dependencies
 RUN go get gopkg.in/mgo.v2
 RUN go get github.com/gorilla/mux
